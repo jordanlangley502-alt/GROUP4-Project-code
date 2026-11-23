@@ -1,6 +1,9 @@
 
 from datetime import datetime, date
-from InventoryItem import InventoryItem
+if __package__:
+    from .InventoryItem import InventoryItem
+else:
+    from InventoryItem import InventoryItem
 
 class InventoryService:
 

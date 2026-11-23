@@ -1,6 +1,10 @@
 
 from datetime import datetime, date
-from InventoryManager import InventoryService
+from decimal import Decimal
+if __package__:
+    from .InventoryManager import InventoryService
+else:
+    from InventoryManager import InventoryService
 
 class LineItem:
 
@@ -41,10 +45,11 @@ class Order:
 
     def calculate_total(self):
 
-        return round(
-            sum(item.get_subtotal() for item in self.line_items),
-            2
+        total = sum(
+            (Decimal(str(item.unit_price)) * item.quantity for item in self.line_items),
+            Decimal("0.00"),
         )
+        return float(total.quantize(Decimal("0.01")))
 
     def validate_order(self):
 
@@ -97,7 +102,7 @@ class OrderService:
             for item in order.line_items:
 
                 menu_item = conn.execute("""
-                    SELECT menu_item_id, price, available
+                    SELECT menu_item_id, name, price, available
                     FROM menu.menu_items
                     WHERE menu_item_id = ?
                 """, (item.menu_item_id,)).fetchone()
@@ -108,6 +113,7 @@ class OrderService:
                     )
 
                 item.unit_price = menu_item["price"]
+                item.item_name = menu_item["name"]
 
             total = order.calculate_total()
 
@@ -165,7 +171,7 @@ class OrderService:
             now = datetime.now().isoformat(timespec="seconds")
 
             cursor = conn.execute("""
-                INSERT INTO orders.orders
+                INSERT INTO main.orders
                 (order_type, status, placed_at, total, created_by)
                 VALUES (?, ?, ?, ?, ?)
             """, (
@@ -181,7 +187,7 @@ class OrderService:
             for item in order.line_items:
 
                 conn.execute("""
-                    INSERT INTO orders.line_items
+                    INSERT INTO main.line_items
                     (order_id, menu_item_id, item_name,
                      quantity, unit_price, special_request)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -235,7 +241,7 @@ class OrderService:
         with self.database.connect() as conn:
 
             orders = conn.execute("""
-                SELECT * FROM orders.orders
+                SELECT * FROM main.orders
                 ORDER BY placed_at DESC
             """).fetchall()
 
@@ -248,7 +254,7 @@ class OrderService:
 
             result = conn.execute("""
                 SELECT status
-                FROM orders.orders
+                FROM main.orders
                 WHERE order_id = ?
             """, (order_id,)).fetchone()
 
@@ -262,7 +268,7 @@ class OrderService:
             order.update_status(new_status)
 
             conn.execute("""
-                UPDATE orders.orders
+                UPDATE main.orders
                 SET status = ?
                 WHERE order_id = ?
             """, (new_status, order_id))
