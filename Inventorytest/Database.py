@@ -13,7 +13,8 @@ class DatabaseManager:
         self.paths = {
             "inventory": self.folder / "inventory.db",
             "orders": self.folder / "orders.db",
-            "menu": self.folder / "menu_items.db"
+            "menu": self.folder / "menu_items.db",
+            "deliveries": self.folder / "deliveries.db"
         }
 
         self.create_databases()
@@ -21,7 +22,7 @@ class DatabaseManager:
 
     def connect(self):
 
-        conn = sqlite3.connect(str(self.paths["orders"]))
+        conn = sqlite3.connect(str(self.paths["orders"]), timeout=10, check_same_thread=False)
 
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -29,6 +30,7 @@ class DatabaseManager:
         databases = {
             "inventory": self.paths["inventory"],
             "menu": self.paths["menu"],
+            "deliveries": self.paths["deliveries"],
 
         }
 
@@ -127,9 +129,20 @@ class DatabaseManager:
             """)
 
 
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS deliveries.deliveries (
+                    order_id INTEGER PRIMARY KEY,
+                    address TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'Awaiting Pickup',
+                    assigned_to INTEGER,
+                    cash_cents INTEGER CHECK(cash_cents >= 0),
+                    changed_at TEXT
+                );
+            """)
             conn.commit()
 
         finally:
             conn.close()
 
-        print("All five databases are ready.")
+        print("Shared restaurant databases are ready.")
