@@ -28,8 +28,21 @@ python main.py
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/` | Dashboard UI |
+| GET | `/api/dashboard/today` | Daily sales report for a selected date (default today): total, in-store, delivery, deltas — pass `?date=YYYY-MM-DD` for past reports |
+| GET | `/api/menu/popular` | Popular menu items aggregated from live order lines (demo list while offline) |
 | GET | `/api/overview` | Aggregated stats |
-| GET | `/api/orders` | Recent orders |
+| GET | `/api/orders` | Recent orders (filter with `?date=YYYY-MM-DD`) |
 | GET | `/api/inventory` | Inventory snapshot |
 | GET | `/api/report/end-of-day` | Consolidated EOD report |
 | GET | `/api/health` | Health check |
+
+## Notes
+
+- Live mode mirrors the shared backend (`127.0.0.1:8000`): order statuses map
+  `new/cooking → Preparing`, `ready → Ready`, `done → Completed`; first-seen time
+  is stamped locally because the backend leaves `created_at` empty.
+- Popular menu items are aggregated from those live order lines; the built-in
+  list is a fallback for when the backend is offline.
+- Inventory fallback numbers are demo data until the inventory module ships.
+- `owner.db` is gitignored and regenerates with fresh seed data on first run.
+- Google Fonts needs internet; offline it falls back to system fonts and still works.

@@ -6,7 +6,10 @@ Run:  uvicorn main:app --reload
 Open: http://127.0.0.1:8001
 """
 
+import asyncio
+import json
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -72,6 +75,20 @@ def init_db():
         if "customer" not in cols:
             c.execute("ALTER TABLE orders ADD COLUMN customer TEXT NOT NULL DEFAULT ''")
 
+        # orders mirrored from the shared backend (team's main.py on :8000)
+        c.execute("""CREATE TABLE IF NOT EXISTS shared_orders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            remote_id INTEGER NOT NULL UNIQUE,
+            order_type TEXT NOT NULL CHECK(order_type IN ('in-store','delivery')),
+            total REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Preparing',
+            customer TEXT NOT NULL DEFAULT '',
+            items TEXT NOT NULL DEFAULT '[]')""")
+        scols = {r[1] for r in c.execute("PRAGMA table_info(shared_orders)").fetchall()}
+        if "items" not in scols:
+            c.execute("ALTER TABLE shared_orders ADD COLUMN items TEXT NOT NULL DEFAULT '[]'")
+
         count = c.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
         if count == 0:
             now = datetime.now()
@@ -125,31 +142,109 @@ def init_db():
 init_db()
 
 
-def local_orders() -> list:
+# ---------------------------------------------------------------------------
+# Shared-backend ingestion — mirror the team's orders into shared_orders
+# ---------------------------------------------------------------------------
+# Their statuses -> our pills. Their "kind" -> our "order_type".
+REMOTE_STATUS = {"new": "Preparing", "cooking": "Preparing",
+                 "ready": "Ready", "done": "Completed"}
+SYNC_TTL = 2.5
+_sync_lock = asyncio.Lock()
+_sync = {"t": 0.0, "reachable": False}
+
+
+async def ensure_shared_synced() -> bool:
+    """Fetch the shared backend's orders at most every SYNC_TTL seconds."""
+    now = time.monotonic()
+    if now - _sync["t"] < SYNC_TTL:
+        return _sync["reachable"]
+    async with _sync_lock:
+        now = time.monotonic()
+        if now - _sync["t"] < SYNC_TTL:
+            return _sync["reachable"]
+        data = await fetch_backend("/api/orders")
+        _sync["t"] = time.monotonic()
+        if not isinstance(data, list):
+            _sync["reachable"] = False
+            return False
+        _sync["reachable"] = True
+        _ingest_shared_orders(data)
+        return True
+
+
+def _ingest_shared_orders(rows: list) -> None:
+    """Upsert backend rows; drop ones it no longer has. created_at is their
+    NULL, so we stamp first-seen locally (kept stable across syncs)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    kept = []
     with db_cursor() as c:
-        rows = c.execute(
-            "SELECT id, order_type, total, created_at, status, customer"
-            " FROM orders ORDER BY id"
-        ).fetchall()
-    return [dict(r) for r in rows]
+        for r in rows:
+            rid = r.get("id")
+            if rid is None:
+                continue
+            kind = r.get("kind") or "dine_in"
+            order_type = "delivery" if kind == "delivery" else "in-store"
+            status = REMOTE_STATUS.get(str(r.get("status") or "new"), "Preparing")
+            total = float(r.get("total") or 0)
+            customer = (r.get("address") or "") if order_type == "delivery" else "Walk-in"
+            raw_items = r.get("items") or "[]"
+            if not isinstance(raw_items, str):
+                raw_items = json.dumps(raw_items)
+            c.execute(
+                """INSERT INTO shared_orders(remote_id,order_type,total,created_at,status,customer,items)
+                   VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(remote_id) DO UPDATE SET
+                     order_type=excluded.order_type, total=excluded.total,
+                     status=excluded.status, customer=excluded.customer,
+                     items=excluded.items,
+                     created_at=shared_orders.created_at""",
+                (rid, order_type, total, now, status, customer, raw_items),
+            )
+            kept.append(int(rid))
+        if kept:
+            marks = ",".join("?" * len(kept))
+            c.execute(f"DELETE FROM shared_orders WHERE remote_id NOT IN ({marks})", kept)
+        else:
+            c.execute("DELETE FROM shared_orders")
+
+
+def orders_table() -> str:
+    """shared_orders while the backend has ever answered; demo orders otherwise."""
+    with db_cursor() as c:
+        n = c.execute("SELECT COUNT(*) FROM shared_orders").fetchone()[0]
+    return "shared_orders" if n else "orders"
+
+
+def orders_id_col(table: str) -> str:
+    return "remote_id AS id" if table == "shared_orders" else "id"
+
+
+def sync_state() -> str:
+    return "live" if _sync["reachable"] else (
+        "stale" if orders_table() == "shared_orders" else "demo")
 
 
 def local_order_stats() -> dict:
     """Aggregates for today only — the owner opens this board for today."""
     today = datetime.now().strftime("%Y-%m-%d")
+    t = orders_table()
     with db_cursor() as c:
         row = c.execute(
-            "SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue,"
-            " SUM(CASE WHEN order_type='in-store' THEN 1 ELSE 0 END) AS in_store,"
-            " SUM(CASE WHEN order_type='delivery' THEN 1 ELSE 0 END) AS delivery"
-            " FROM orders WHERE date(created_at) = ?",
+            f"SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue,"
+            f" COALESCE(SUM(CASE WHEN order_type='in-store' THEN total END),0) AS in_store,"
+            f" COALESCE(SUM(CASE WHEN order_type='delivery' THEN total END),0) AS delivery,"
+            f" SUM(CASE WHEN order_type='in-store' THEN 1 ELSE 0 END) AS in_store_n,"
+            f" SUM(CASE WHEN order_type='delivery' THEN 1 ELSE 0 END) AS delivery_n"
+            f" FROM {t} WHERE date(created_at) = ?",
             (today,),
         ).fetchone()
     return {
         "orders": row["orders"] or 0,
         "revenue": round(row["revenue"] or 0, 2),
-        "in_store": row["in_store"] or 0,
-        "delivery": row["delivery"] or 0,
+        "in_store": round(row["in_store"] or 0, 2),
+        "delivery": round(row["delivery"] or 0, 2),
+        "in_store_orders": row["in_store_n"] or 0,
+        "delivery_orders": row["delivery_n"] or 0,
     }
 
 
@@ -179,40 +274,46 @@ async def index():
 # ---------------------------------------------------------------------------
 @app.get("/api/overview")
 async def overview():
+    await ensure_shared_synced()
     stats = local_order_stats()
     shared = await fetch_backend("/api/stats")
     stats["waste_logged"] = (shared or {}).get("waste_logged", 0)
     stats["inventory_items"] = (shared or {}).get("inventory_items", 0)
-    stats["live"] = shared is not None
+    stats["mode"] = sync_state()
+    stats["live"] = _sync["reachable"]
     return stats
 
 
 @app.get("/api/orders")
 async def orders(date: str | None = None):
     """All orders, or only one day when ?date=YYYY-MM-DD."""
+    await ensure_shared_synced()
+    t = orders_table()
+    idc = orders_id_col(t)
     with db_cursor() as c:
         if date:
             rows = c.execute(
-                "SELECT id, order_type, total, created_at, status, customer"
-                " FROM orders WHERE date(created_at) = ? ORDER BY id",
+                f"SELECT {idc}, order_type, total, created_at, status, customer"
+                f" FROM {t} WHERE date(created_at) = ? ORDER BY id",
                 (date,),
             ).fetchall()
         else:
             rows = c.execute(
-                "SELECT id, order_type, total, created_at, status, customer"
-                " FROM orders ORDER BY id"
+                f"SELECT {idc}, order_type, total, created_at, status, customer"
+                f" FROM {t} ORDER BY id"
             ).fetchall()
     return [dict(r) for r in rows]
 
 
 def _day_rollup(day: str) -> dict:
+    t = orders_table()
     with db_cursor() as c:
         row = c.execute(
             "SELECT COALESCE(SUM(total),0) AS total,"
             " COALESCE(SUM(CASE WHEN order_type='in-store' THEN total END),0) AS in_store,"
             " COALESCE(SUM(CASE WHEN order_type='delivery' THEN total END),0) AS delivery,"
             " COUNT(*) AS n"
-            " FROM orders WHERE date(created_at) = ?",
+            f" FROM {t} WHERE date(created_at) = ?",
             (day,),
         ).fetchone()
     n = row["n"] or 0
@@ -243,6 +344,7 @@ async def dashboard_today(date: str | None = None):
         except ValueError:
             return datetime.now()
 
+    await ensure_shared_synced()
     selected = parse_day(date)
     day = selected.strftime("%Y-%m-%d")
     prev = (selected - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -274,6 +376,33 @@ async def dashboard_today(date: str | None = None):
 
 @app.get("/api/menu/popular")
 async def popular_menu():
+    """Live orders aggregated by item name; demo list until the backend has orders."""
+    await ensure_shared_synced()
+    if orders_table() == "shared_orders":
+        with db_cursor() as c:
+            rows = c.execute("SELECT items FROM shared_orders").fetchall()
+        qty_by_name: dict[str, int] = {}
+        for r in rows:
+            try:
+                items = json.loads(r["items"] or "[]")
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(items, list):
+                continue
+            for it in items:
+                name = str((it or {}).get("name") or "").strip()
+                if not name:
+                    continue
+                qty_by_name[name] = qty_by_name.get(name, 0) + int((it or {}).get("qty") or 1)
+        if qty_by_name:
+            total_q = sum(qty_by_name.values())
+            tones = ["#9a3412", "#1e5c4a", "#a16207", "#7c2d12", "#14532d"]
+            top = sorted(qty_by_name.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+            return [
+                {"name": name, "desc": "", "qty": qty,
+                 "pct": round(qty / total_q * 100), "tone": tones[i % len(tones)]}
+                for i, (name, qty) in enumerate(top)
+            ]
     return POPULAR_ITEMS
 
 
@@ -289,20 +418,30 @@ async def inventory():
     return data
 
 
+@app.get("/report/end-of-day", response_class=HTMLResponse)
+async def end_of_day_page():
+    """Human-readable end-of-day report (the JSON stays at /api/report/end-of-day)."""
+    return FileResponse(STATIC_DIR / "eod.html")
+
+
 @app.get("/api/report/end-of-day")
 async def end_of_day():
     """Consolidated end-of-day report (in-store + delivery cash)."""
+    await ensure_shared_synced()
     stats = local_order_stats()
     shared = await fetch_backend("/api/stats")
     return {
         "date": datetime.now().date().isoformat(),
+        "mode": sync_state(),
         "revenue": stats["revenue"],
         "orders": stats["orders"],
         "in_store": stats["in_store"],
         "delivery": stats["delivery"],
+        "in_store_orders": stats["in_store_orders"],
+        "delivery_orders": stats["delivery_orders"],
         "waste_logged": (shared or {}).get("waste_logged", 0),
         "note": "Consolidated report — split into delivery vs in-store cash when agreed.",
-        "live": shared is not None,
+        "live": _sync["reachable"],
     }
 
 
