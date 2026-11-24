@@ -7,3 +7,8 @@ jamrock_data/
 *.db-wal
 *.db-shm
 .env
+venv/
+__pycache__/
+*.db
+.taste-skill/
+shots/
