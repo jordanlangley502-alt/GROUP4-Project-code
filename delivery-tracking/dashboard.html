@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delivery tracking · Jamrock Bitez</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f7f6f0;color:#1e3028;font:1rem/1.5 "Segoe UI",sans-serif}main{max-width:960px;margin:auto;padding:36px 20px}header{border-bottom:3px solid #19724f;padding-bottom:18px}h1{font-size:clamp(2rem,6vw,3.3rem);line-height:1.1;margin:.3em 0}h2{font-size:1.3rem}article,details{background:white;border:1px solid #cbd5cd;border-radius:10px;padding:16px;margin:12px 0}article h2{margin:0}label{display:block;margin:8px 0}input,select,button{font:inherit;padding:7px;border:1px solid #84968a;border-radius:5px;max-width:100%}button{background:#12573c;color:white;cursor:pointer}p{margin:5px 0}summary{cursor:pointer;font-weight:600}#notice{color:#973519}small{color:#51635b}
+</style>
+<main><header><b>Jamrock Bitez</b><h1>Delivery tracking</h1><span id="identity"></span></header>
+<details id="checkout" hidden><summary>Confirm a test order</summary><form id="order">
+<label>Order ID <input name="order_id" required pattern="[A-Za-z0-9_\-]{1,64}"></label>
+<label>Order type <select name="order_type"><option>delivery</option><option>dine-in</option><option>takeout</option></select></label>
+<label>Address <input name="address"></label><label>Phone <input name="phone" type="tel"></label>
+<label>Order total (JMD) <input name="total" type="number" step=".01" min="0" required></label><button>Confirm order</button></form></details>
+<p id="notice" role="status"></p><p id="connection" role="status"></p><section id="orders"></section></main>
+<script>
+const get=id=>document.getElementById(id);
+const money=c=>new Intl.NumberFormat('en-JM',{style:'currency',currency:'JMD'}).format(c/100);
+let me;
+async function request(url,body){
+  const options=body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)};
+  const res=await fetch(url,options);
+  if(!res.ok){const error=await res.json();throw Error(typeof error.detail==='string'?error.detail:'Check the values entered.');}
+  return res.json();
+}
+function add(parent,tag,text){const el=document.createElement(tag);el.textContent=text;parent.append(el);return el;}
+function render(row){
+  const card=document.createElement('article');
+  add(card,'h2','#'+row.id+' · '+row.status);
+  add(card,'p',row.address+' · '+row.phone);
+  add(card,'p','Total '+money(row.total_cents)+' · Driver: '+(row.driver||'Unassigned'));
+  if(row.cash_cents!==null)add(card,'p','Cash collected '+money(row.cash_cents)+(row.mismatch?' · Amount differs from order total':' · Matches order total'));
+  for(const [label,time] of [['Confirmed by '+row.confirmed_by,row.confirmed_at],['Picked up',row.picked_at],['Delivered',row.delivered_at]]){
+    if(time)add(card,'p',label+' · '+new Date(time).toLocaleString());
+  }
+  const pickup=row.status==='Awaiting Pickup';
+  if(me.role==='driver' && (pickup || (row.driver===me.name && row.status==='Out for Delivery'))){
+    const form=add(card,'form','');let cash;
+    if(!pickup){cash=add(add(form,'label','Cash collected (JMD) '),'input','');Object.assign(cash,{type:'number',min:'0',step:'.01',required:true});}
+    add(form,'button',pickup?'Pick up order':'Mark delivered');
+    form.onsubmit=async e=>{e.preventDefault();try{
+      await request('/api/deliveries/'+encodeURIComponent(row.id)+(pickup?'/pickup':'/complete'),pickup?{}:{cash_cents:Math.round(Number(cash.value)*100)});
+      get('notice').textContent='Order updated.';await refresh();
+    }catch(err){get('notice').textContent=err.message;}};
+  }
+  return card;
+}
+async function refresh(){
+  const rows=await request('/api/deliveries');get('connection').textContent=rows.length?'':'No confirmed deliveries yet.';
+  for(const row of rows){
+    const key='delivery-'+row.id, old=get(key), signature=JSON.stringify(row);
+    if(old?.dataset.signature===signature)continue;
+    const card=render(row);card.id=key;card.dataset.signature=signature;
+    if(old)old.replaceWith(card);else get('orders').append(card);
+  }
+}
+get('order').onsubmit=async e=>{e.preventDefault();const data=Object.fromEntries(new FormData(e.target));
+  data.total_cents=Math.round(Number(data.total)*100);delete data.total;
+  try{const result=await request('/api/confirm',data);get('notice').textContent=result.tracked?'Delivery confirmed.':'Order type excluded from delivery tracking.';e.target.reset();await refresh();}
+  catch(err){get('notice').textContent=err.message;}
+};
+async function poll(){try{await refresh();}catch{get('connection').textContent='Connection interrupted. Reconnecting…';}setTimeout(poll,1000);}
+async function start(){me=await request('/api/me');get('identity').textContent='Signed in as '+me.name;get('checkout').hidden=me.role!=='cashier';poll();}
+start().catch(err=>get('notice').textContent=err.message);
+</script></html>
