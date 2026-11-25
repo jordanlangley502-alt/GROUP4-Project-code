@@ -245,6 +245,9 @@ async function loadLowStock() {
 
 // EXPIRY TRACKING
 
+
+// EXPIRY TRACKING
+
 async function loadExpiry() {
 
     const items = await apiRequest("/inventory/expiry");
@@ -262,13 +265,71 @@ async function loadExpiry() {
         addCell(row, item.days_left);
         addCell(row, item.status);
 
+        // EXPIRY DATE EDITING
+
+        const editCell = document.createElement("td");
+
+        const dateInput = document.createElement("input");
+        dateInput.type = "date";
+        dateInput.value = item.expiry_date;
+        dateInput.required = true;
+        dateInput.setAttribute(
+            "aria-label",
+            `New expiry date for ${item.name}`
+        );
+
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.textContent = "Save";
+
+        saveButton.addEventListener("click", async () => {
+
+            const newExpiry = dateInput.value;
+
+            if (!newExpiry) {
+                showMessage("Please select an expiry date.", true);
+                return;
+            }
+
+            try {
+
+                await apiRequest(
+                    `/inventory/lots/${item.lot_id}/expiry`,
+                    {
+                        method: "PATCH",
+                        body: JSON.stringify({
+                            expiry_date: newExpiry
+                        })
+                    }
+                );
+
+                showMessage(
+                    `${item.name} expiry date updated successfully.`
+                );
+
+                // Reload expiry information and days remaining
+                await loadExpiry();
+
+            } catch (error) {
+
+                showMessage(error.message, true);
+
+            }
+        });
+
+        editCell.appendChild(dateInput);
+        editCell.appendChild(saveButton);
+
+        row.appendChild(editCell);
+
         table.appendChild(row);
     });
 
     if (!items.length) {
-        emptyRow(table, 5, "No expiry records found.");
+        emptyRow(table, 6, "No expiry records found.");
     }
 }
+
 
 
 // NAVIGATION
@@ -318,3 +379,4 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.querySelector('[data-tab="viewTab"]').click();
 
 });
+
