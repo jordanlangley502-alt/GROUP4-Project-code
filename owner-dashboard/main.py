@@ -1,6 +1,8 @@
 """
 Jamrock Bitez — Owner Dashboard
 Read-only overview across cashier, kitchen, delivery, and inventory.
+Adapter over the team's shared backend (backend/ on :8000): logs in as the
+Owner, mirrors orders, and maps their fields onto this board's shapes.
 
 Run:  uvicorn main:app --reload
 Open: http://127.0.0.1:8001
@@ -8,10 +10,11 @@ Open: http://127.0.0.1:8001
 
 import asyncio
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -21,12 +24,15 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Jamrock Bitez — Owner Dashboard")
 
-# Shared backend (Danyl's main.py) — used when available.
+# Shared backend (Danyl's backend/ package) — used when available.
 BACKEND = "http://127.0.0.1:8000"
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 DB_PATH = BASE_DIR / "owner.db"
+
+# Their trading day runs on Jamaica time (UTC-5), same as /reports/daily-sales.
+JAMAICA = timezone(timedelta(hours=-5))
 
 
 # ---------------------------------------------------------------------------
@@ -143,53 +149,172 @@ init_db()
 
 
 # ---------------------------------------------------------------------------
-# Shared-backend ingestion — mirror the team's orders into shared_orders
+# Shared-backend adapter — login, fetch, map, mirror
 # ---------------------------------------------------------------------------
-# Their statuses -> our pills. Their "kind" -> our "order_type".
-REMOTE_STATUS = {"new": "Preparing", "cooking": "Preparing",
-                 "ready": "Ready", "done": "Completed"}
+# Owner credentials come from the environment or a gitignored local file,
+# never from the repo. Token is cached and refreshed on expiry/401.
 SYNC_TTL = 2.5
+_auth = {"token": None, "exp": 0.0, "retry": 0.0}
 _sync_lock = asyncio.Lock()
-_sync = {"t": 0.0, "reachable": False}
+_sync = {"t": 0.0, "reachable": False, "inventory_items": 0}
+_sales_cache: dict[str, tuple[float, dict]] = {}
+
+
+def owner_credentials() -> tuple[str, str]:
+    user = os.environ.get("JAMROCK_OWNER_USERNAME", "").strip()
+    pwd = os.environ.get("JAMROCK_OWNER_PASSWORD", "")
+    if not user:
+        cfg = BASE_DIR / "backend_login.json"
+        if cfg.exists():
+            try:
+                data = json.loads(cfg.read_text())
+                user = str(data.get("username", "")).strip()
+                pwd = str(data.get("password", ""))
+            except (ValueError, OSError):
+                pass
+    return user, pwd
+
+
+async def backend_login() -> bool:
+    if time.monotonic() < _auth["retry"]:
+        return bool(_auth["token"])
+    user, pwd = owner_credentials()
+    if not user or not pwd:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.post(f"{BACKEND}/auth/login",
+                                  json={"username": user, "password": pwd})
+        if r.status_code != 200:
+            _auth["retry"] = time.monotonic() + SYNC_TTL
+            return False
+        data = r.json()
+        _auth["token"] = data.get("access_token")
+        _auth["exp"] = time.monotonic() + max(60, int(data.get("expires_in", 28800)) - 120)
+        return bool(_auth["token"])
+    except Exception:
+        _auth["retry"] = time.monotonic() + SYNC_TTL
+        return False
+
+
+async def authed_get(path: str):
+    """GET from the shared backend with a bearer token; None on any failure."""
+    if not _auth["token"] or time.monotonic() >= _auth["exp"]:
+        if not await backend_login():
+            return None
+    for _ in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                r = await client.get(
+                    f"{BACKEND}{path}",
+                    headers={"Authorization": f"Bearer {_auth['token']}"},
+                )
+        except Exception:
+            return None
+        if r.status_code == 401:
+            _auth["token"] = None
+            if not await backend_login():
+                return None
+            continue
+        if r.status_code >= 400:
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            return None
+    return None
+
+
+async def daily_sales(day: str) -> dict | None:
+    """Paid-sales report for one day (their /reports/daily-sales, Owner only)."""
+    hit = _sales_cache.get(day)
+    if hit and time.monotonic() - hit[0] < SYNC_TTL:
+        return hit[1]
+    data = await authed_get(f"/reports/daily-sales?day={day}")
+    if isinstance(data, dict) and "total" in data:
+        _sales_cache[day] = (time.monotonic(), data)
+        return data
+    return None
 
 
 async def ensure_shared_synced() -> bool:
-    """Fetch the shared backend's orders at most every SYNC_TTL seconds."""
+    """Mirror dashboard orders + counts at most every SYNC_TTL seconds."""
     now = time.monotonic()
     if now - _sync["t"] < SYNC_TTL:
         return _sync["reachable"]
     async with _sync_lock:
-        now = time.monotonic()
-        if now - _sync["t"] < SYNC_TTL:
+        if time.monotonic() - _sync["t"] < SYNC_TTL:
             return _sync["reachable"]
-        data = await fetch_backend("/api/orders")
-        _sync["t"] = time.monotonic()
-        if not isinstance(data, list):
+        dash = await authed_get("/dashboard")
+        if not isinstance(dash, dict) or not isinstance(dash.get("orders"), list):
             _sync["reachable"] = False
             return False
+        inv = await authed_get("/inventory")
+        if isinstance(inv, list):
+            _sync["inventory_items"] = len(inv)
         _sync["reachable"] = True
-        _ingest_shared_orders(data)
+        _sync["t"] = time.monotonic()
+        _ingest_shared_orders(dash.get("orders") or [], dash.get("deliveries") or [])
+        today = datetime.now(JAMAICA).strftime("%Y-%m-%d")
+        yday = (datetime.now(JAMAICA) - timedelta(days=1)).strftime("%Y-%m-%d")
+        await daily_sales(today)
+        await daily_sales(yday)
         return True
 
 
-def _ingest_shared_orders(rows: list) -> None:
-    """Upsert backend rows; drop ones it no longer has. created_at is their
-    NULL, so we stamp first-seen locally (kept stable across syncs)."""
-    now = datetime.now().isoformat(timespec="seconds")
+def _jamaica_stamp(iso: str | None, fallback: str) -> str:
+    """Their placed_at is a naive timestamp from a Jamaica-TZ machine — keep the
+    wall clock as-is; convert only if it arrives timezone-aware."""
+    if iso:
+        try:
+            dt = datetime.fromisoformat(str(iso))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=JAMAICA)
+            return dt.astimezone(JAMAICA).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+    return fallback
+
+
+def _map_status(kitchen: str, delivery: str | None) -> str:
+    if delivery == "Delivered":
+        return "Completed"
+    if delivery == "Out for Delivery":
+        return "Out for delivery"
+    return {
+        "Confirmed": "Preparing",
+        "Making": "Preparing",
+        "Ready": "Ready",
+        "Completed": "Completed",
+    }.get(kitchen, "Preparing")
+
+
+def _ingest_shared_orders(orders: list, deliveries: list) -> None:
+    """Upsert /dashboard rows into shared_orders; drop orders it no longer has."""
+    stamp = datetime.now(JAMAICA).strftime("%Y-%m-%d %H:%M:%S")
+    addr = {d.get("order_id"): str(d.get("address") or "")
+            for d in deliveries if isinstance(d, dict)}
+    dstate = {d.get("order_id"): d.get("status")
+              for d in deliveries if isinstance(d, dict)}
     kept = []
     with db_cursor() as c:
-        for r in rows:
-            rid = r.get("id")
-            if rid is None:
+        for r in orders:
+            if not isinstance(r, dict) or r.get("order_id") is None:
                 continue
-            kind = r.get("kind") or "dine_in"
-            order_type = "delivery" if kind == "delivery" else "in-store"
-            status = REMOTE_STATUS.get(str(r.get("status") or "new"), "Preparing")
+            rid = int(r["order_id"])
+            kind = str(r.get("order_type") or "Dine-in")
+            order_type = "delivery" if kind == "Delivery" else "in-store"
+            status = _map_status(str(r.get("status") or "Confirmed"), dstate.get(rid))
             total = float(r.get("total") or 0)
-            customer = (r.get("address") or "") if order_type == "delivery" else "Walk-in"
-            raw_items = r.get("items") or "[]"
-            if not isinstance(raw_items, str):
-                raw_items = json.dumps(raw_items)
+            customer = addr.get(rid, "") if order_type == "delivery" else "Walk-in"
+            items = [
+                {"name": str(it.get("item_name") or ""),
+                 "qty": int(it.get("quantity") or 1),
+                 "price": float(it.get("unit_price") or 0)}
+                for it in (r.get("items") or [])
+                if isinstance(it, dict)
+            ]
+            created = _jamaica_stamp(r.get("placed_at"), stamp)
             c.execute(
                 """INSERT INTO shared_orders(remote_id,order_type,total,created_at,status,customer,items)
                    VALUES(?,?,?,?,?,?,?)
@@ -197,10 +322,10 @@ def _ingest_shared_orders(rows: list) -> None:
                      order_type=excluded.order_type, total=excluded.total,
                      status=excluded.status, customer=excluded.customer,
                      items=excluded.items,
-                     created_at=shared_orders.created_at""",
-                (rid, order_type, total, now, status, customer, raw_items),
+                     created_at=excluded.created_at""",
+                (rid, order_type, total, created, status, customer, json.dumps(items)),
             )
-            kept.append(int(rid))
+            kept.append(rid)
         if kept:
             marks = ",".join("?" * len(kept))
             c.execute(f"DELETE FROM shared_orders WHERE remote_id NOT IN ({marks})", kept)
@@ -209,7 +334,9 @@ def _ingest_shared_orders(rows: list) -> None:
 
 
 def orders_table() -> str:
-    """shared_orders while the backend has ever answered; demo orders otherwise."""
+    """shared_orders while the backend answers (even with 0 orders); demo otherwise."""
+    if _sync["reachable"]:
+        return "shared_orders"
     with db_cursor() as c:
         n = c.execute("SELECT COUNT(*) FROM shared_orders").fetchone()[0]
     return "shared_orders" if n else "orders"
@@ -224,19 +351,18 @@ def sync_state() -> str:
         "stale" if orders_table() == "shared_orders" else "demo")
 
 
-def local_order_stats() -> dict:
-    """Aggregates for today only — the owner opens this board for today."""
-    today = datetime.now().strftime("%Y-%m-%d")
+def _mirror_stats(day: str) -> dict:
+    """Order counts (and a money fallback) from the mirrored order list."""
     t = orders_table()
     with db_cursor() as c:
         row = c.execute(
-            f"SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue,"
-            f" COALESCE(SUM(CASE WHEN order_type='in-store' THEN total END),0) AS in_store,"
-            f" COALESCE(SUM(CASE WHEN order_type='delivery' THEN total END),0) AS delivery,"
-            f" SUM(CASE WHEN order_type='in-store' THEN 1 ELSE 0 END) AS in_store_n,"
-            f" SUM(CASE WHEN order_type='delivery' THEN 1 ELSE 0 END) AS delivery_n"
+            "SELECT COUNT(*) AS orders, COALESCE(SUM(total),0) AS revenue,"
+            " COALESCE(SUM(CASE WHEN order_type='in-store' THEN total END),0) AS in_store,"
+            " COALESCE(SUM(CASE WHEN order_type='delivery' THEN total END),0) AS delivery,"
+            " SUM(CASE WHEN order_type='in-store' THEN 1 ELSE 0 END) AS in_store_n,"
+            " SUM(CASE WHEN order_type='delivery' THEN 1 ELSE 0 END) AS delivery_n"
             f" FROM {t} WHERE date(created_at) = ?",
-            (today,),
+            (day,),
         ).fetchone()
     return {
         "orders": row["orders"] or 0,
@@ -248,17 +374,18 @@ def local_order_stats() -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Helpers — pull live data from the shared backend when available
-# ---------------------------------------------------------------------------
-async def fetch_backend(path: str):
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{BACKEND}{path}")
-            r.raise_for_status()
-            return r.json()
-    except Exception:
-        return None
+def local_order_stats() -> dict:
+    """Today's board numbers: paid totals from their daily-sales report,
+    order counts from the mirrored list."""
+    today = datetime.now(JAMAICA).strftime("%Y-%m-%d")
+    stats = _mirror_stats(today)
+    hit = _sales_cache.get(today)
+    if hit:
+        sales = hit[1]
+        stats["revenue"] = round(float(sales.get("total") or 0), 2)
+        stats["in_store"] = round(float(sales.get("in_store") or 0), 2)
+        stats["delivery"] = round(float(sales.get("delivery") or 0), 2)
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -276,9 +403,9 @@ async def index():
 async def overview():
     await ensure_shared_synced()
     stats = local_order_stats()
-    shared = await fetch_backend("/api/stats")
-    stats["waste_logged"] = (shared or {}).get("waste_logged", 0)
-    stats["inventory_items"] = (shared or {}).get("inventory_items", 0)
+    # His backend has no waste tracking; the cell stays honest at 0.
+    stats["waste_logged"] = 0
+    stats["inventory_items"] = _sync["inventory_items"]
     stats["mode"] = sync_state()
     stats["live"] = _sync["reachable"]
     return stats
@@ -306,6 +433,8 @@ async def orders(date: str | None = None):
 
 
 def _day_rollup(day: str) -> dict:
+    """One day: order counts from the mirror, money from /reports/daily-sales
+    when we have it (callers await daily_sales(day) first), mirror sums otherwise."""
     t = orders_table()
     with db_cursor() as c:
         row = c.execute(
@@ -317,11 +446,20 @@ def _day_rollup(day: str) -> dict:
             (day,),
         ).fetchone()
     n = row["n"] or 0
-    total = round(row["total"], 2)
+    hit = _sales_cache.get(day)
+    if hit:
+        sales = hit[1]
+        total = round(float(sales.get("total") or 0), 2)
+        in_store = round(float(sales.get("in_store") or 0), 2)
+        delivery = round(float(sales.get("delivery") or 0), 2)
+    else:
+        total = round(row["total"], 2)
+        in_store = round(row["in_store"], 2)
+        delivery = round(row["delivery"], 2)
     return {
         "total": total,
-        "in_store": round(row["in_store"], 2),
-        "delivery": round(row["delivery"], 2),
+        "in_store": in_store,
+        "delivery": delivery,
         "orders": n,
         "avg": round(total / n, 2) if n else 0.0,
     }
@@ -348,11 +486,13 @@ async def dashboard_today(date: str | None = None):
     selected = parse_day(date)
     day = selected.strftime("%Y-%m-%d")
     prev = (selected - timedelta(days=1)).strftime("%Y-%m-%d")
+    await daily_sales(day)
+    await daily_sales(prev)
 
     t = _day_rollup(day)
     y = _day_rollup(prev)
     delta = round(t["total"] - y["total"], 2)
-    is_today = day == datetime.now().strftime("%Y-%m-%d")
+    is_today = day == datetime.now(JAMAICA).strftime("%Y-%m-%d")
 
     return {
         "date": day,
@@ -408,14 +548,15 @@ async def popular_menu():
 
 @app.get("/api/inventory")
 async def inventory():
-    data = await fetch_backend("/api/inventory")
-    if data is None:
-        return [
-            {"id": 1, "name": "Chicken", "qty": 25, "unit": "lb", "expiry_date": "2026-11-25", "kind": "food"},
-            {"id": 2, "name": "Rice", "qty": 40, "unit": "lb", "expiry_date": "2027-01-01", "kind": "food"},
-            {"id": 3, "name": "Cooking Oil", "qty": 8, "unit": "L", "expiry_date": "2026-12-15", "kind": "supplies"},
-        ]
-    return data
+    await ensure_shared_synced()
+    data = await authed_get("/inventory")
+    if isinstance(data, list):
+        return data
+    return [
+        {"id": 1, "name": "Chicken", "qty": 25, "unit": "lb", "expiry_date": "2026-11-25", "kind": "food"},
+        {"id": 2, "name": "Rice", "qty": 40, "unit": "lb", "expiry_date": "2027-01-01", "kind": "food"},
+        {"id": 3, "name": "Cooking Oil", "qty": 8, "unit": "L", "expiry_date": "2026-12-15", "kind": "supplies"},
+    ]
 
 
 @app.get("/report/end-of-day", response_class=HTMLResponse)
@@ -429,9 +570,8 @@ async def end_of_day():
     """Consolidated end-of-day report (in-store + delivery cash)."""
     await ensure_shared_synced()
     stats = local_order_stats()
-    shared = await fetch_backend("/api/stats")
     return {
-        "date": datetime.now().date().isoformat(),
+        "date": datetime.now(JAMAICA).date().isoformat(),
         "mode": sync_state(),
         "revenue": stats["revenue"],
         "orders": stats["orders"],
@@ -439,7 +579,7 @@ async def end_of_day():
         "delivery": stats["delivery"],
         "in_store_orders": stats["in_store_orders"],
         "delivery_orders": stats["delivery_orders"],
-        "waste_logged": (shared or {}).get("waste_logged", 0),
+        "waste_logged": 0,
         "note": "Consolidated report — split into delivery vs in-store cash when agreed.",
         "live": _sync["reachable"],
     }

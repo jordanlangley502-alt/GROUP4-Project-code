@@ -12,3 +12,4 @@ __pycache__/
 *.db
 .taste-skill/
 shots/
+backend_login.json
