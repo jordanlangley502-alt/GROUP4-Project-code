@@ -12,6 +12,7 @@ import time
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from Inventorytest.InventoryManager import InventoryService
 from Inventorytest.MenuItems import MenuService
@@ -107,12 +108,19 @@ def create_app(data_dir=None):
     async def lifespan(app):
         folder = data_dir or os.environ.get("JAMROCK_DATA_DIR") or str(Path(__file__).resolve().parents[1] / "jamrock_data")
         app.state.database = initialize(folder)
+        from .pos.service import ensure_pos_schema
+        ensure_pos_schema(app.state.database)
         yield
 
     app = FastAPI(title="Jamrock Bitez Shared Backend", version="0.1.0", lifespan=lifespan)
     origins = [origin.strip() for origin in os.environ.get("JAMROCK_ALLOWED_ORIGINS", "http://localhost:5500,http://127.0.0.1:5500").split(",") if origin.strip()]
     app.state.allowed_origins = origins
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PATCH"], allow_headers=["Authorization", "Content-Type", "Idempotency-Key"])
+    from .pos.router import router as pos_router
+    app.include_router(pos_router)
+    pos_folder = Path(__file__).resolve().parents[1] / "frontend" / "pos"
+    if pos_folder.exists():
+        app.mount("/pos", StaticFiles(directory=pos_folder, html=True), name="pos")
 
     @app.get("/health")
     def health():

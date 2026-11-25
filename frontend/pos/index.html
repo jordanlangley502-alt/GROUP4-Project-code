@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jamrock Bitez | POS Register</title>
+  <link rel="stylesheet" href="/pos/pos.css">
+</head>
+<body>
+  <section id="login-view" class="login-view" aria-labelledby="login-title" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark" aria-hidden="true">JB</div>
+      <p class="eyebrow">JAMROCK BITEZ</p>
+      <h1 id="login-title">Welcome back</h1>
+      <p class="login-intro">Sign in to open the cashier register.</p>
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="login-error" role="alert" aria-live="polite" hidden></p>
+      <button id="sign-in" class="button button-primary login-submit" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <div id="app-view" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">JB</div>
+        <div>
+          <div class="brand-name">Jamrock Bitez</div>
+          <div class="brand-subtitle">POS Register</div>
+        </div>
+      </div>
+      <div class="cashier-tools">
+        <span class="cashier-label">Cashier</span>
+        <span id="cashier-name" class="cashier-name"></span>
+        <button id="logout" class="button button-quiet" type="button">Logout</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel menu-panel" aria-labelledby="menu-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">FRESH FROM THE KITCHEN</p>
+            <h1 id="menu-title">Menu</h1>
+          </div>
+          <span id="menu-count" class="muted"></span>
+        </div>
+        <div id="menu" class="menu-grid" aria-live="polite"></div>
+        <p id="menu-error" class="inline-error" role="alert" hidden></p>
+      </section>
+
+      <section class="panel cart-panel" aria-labelledby="order-title">
+        <div class="cart-heading">
+          <div>
+            <p class="eyebrow">BUILD YOUR ORDER</p>
+            <h2 id="order-title">Current order</h2>
+          </div>
+          <span id="cart-count" class="count-badge">0 items</span>
+        </div>
+
+        <div class="cart-scroll">
+          <fieldset class="order-types">
+            <legend>Order type</legend>
+            <div class="segmented-control">
+              <label class="type-option">
+                <input type="radio" name="orderType" value="dine_in" checked>
+                <span>Dine-in</span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="orderType" value="takeout">
+                <span>Takeout</span>
+              </label>
+              <label class="type-option">
+                <input type="radio" name="orderType" value="delivery">
+                <span>Delivery</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div id="delivery-fields" class="delivery-fields" aria-hidden="true">
+            <label for="delivery-address">Delivery address</label>
+            <input id="delivery-address" type="text" autocomplete="street-address">
+            <label for="customer-phone">Customer phone</label>
+            <input id="customer-phone" type="tel" autocomplete="tel">
+          </div>
+
+          <div id="error-banner" class="error-banner" role="alert" aria-live="polite" hidden>
+            <span id="message"></span>
+            <button id="dismiss-error" class="dismiss-error" type="button" aria-label="Dismiss error">×</button>
+          </div>
+          <div id="cart" class="cart"></div>
+        </div>
+
+        <footer class="cart-footer">
+          <div class="total-row">
+            <span>Total</span>
+            <strong id="total" aria-live="polite">J$ 0.00</strong>
+          </div>
+          <button id="confirm" class="button button-primary confirm" type="button" disabled>
+            Confirm Order
+          </button>
+        </footer>
+      </section>
+
+      <section class="panel recent-panel" aria-labelledby="recent-title">
+        <div class="panel-heading recent-heading">
+          <div>
+            <p class="eyebrow">KITCHEN UPDATES</p>
+            <h2 id="recent-title">Recent orders</h2>
+          </div>
+          <span class="live-indicator"><span></span> Live</span>
+        </div>
+        <div id="recent-orders" class="recent-orders" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="receipt-dialog" class="receipt-dialog" aria-labelledby="success-title">
+    <div class="success-mark" aria-hidden="true">✓</div>
+    <p class="eyebrow">ORDER CONFIRMED</p>
+    <h2 id="success-title">You're all set!</h2>
+    <p id="success-number" class="success-number"></p>
+    <p id="success-total" class="success-total"></p>
+    <div id="receipt" class="print-receipt"></div>
+    <div class="receipt-actions">
+      <button id="print-receipt" class="button button-secondary" type="button">Print Receipt</button>
+      <button id="new-order" class="button button-primary" type="button">New Order</button>
+    </div>
+  </dialog>
+
+  <script src="/pos/pos.js"></script>
+</body>
+</html>
