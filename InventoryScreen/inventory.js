@@ -374,9 +374,40 @@ document.getElementById("refreshButton")
 
 // INITIAL LOAD
 
-document.addEventListener("DOMContentLoaded", async () => {
+const kitchenLogin = document.getElementById("kitchenLogin");
+const kitchenLoginForm = document.getElementById("kitchenLoginForm");
+const kitchenLoginError = document.getElementById("kitchenLoginError");
 
-    document.querySelector('[data-tab="viewTab"]').click();
+function showKitchenLogin() {
+    if (!kitchenLogin.open) kitchenLogin.showModal();
+}
 
+kitchenLogin.addEventListener("cancel", event => event.preventDefault());
+document.addEventListener("inventory-session-ended", showKitchenLogin);
+document.addEventListener("DOMContentLoaded", () => {
+    if (accessToken) {
+        document.querySelector('[data-tab="viewTab"]').click();
+    } else {
+        showKitchenLogin();
+    }
 });
+
+kitchenLoginForm.addEventListener("submit", async event => {
+    event.preventDefault();
+    const submit = kitchenLoginForm.querySelector('button[type="submit"]');
+    const { username, password } = kitchenLoginForm.elements;
+    kitchenLoginError.textContent = "";
+    submit.disabled = true;
+    try {
+        await signInKitchen(username.value, password.value);
+        kitchenLogin.close();
+        document.querySelector('[data-tab="viewTab"]').click();
+    } catch (error) {
+        kitchenLoginError.textContent = error.message;
+    } finally {
+        password.value = "";
+        submit.disabled = false;
+    }
+});
+
 
