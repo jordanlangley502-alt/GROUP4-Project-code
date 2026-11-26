@@ -36,7 +36,9 @@ async def no_store_api(request, call_next):
 
 
 # Shared backend (Danyl's backend/ package) — used when available.
-BACKEND = "http://127.0.0.1:8000"
+# Set JAMROCK_BACKEND_URL to point at a teammate's machine, e.g.
+# JAMROCK_BACKEND_URL=http://100.117.55.13:8000
+BACKEND = os.environ.get("JAMROCK_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"

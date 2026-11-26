@@ -30,6 +30,26 @@ export JAMROCK_OWNER_PASSWORD=...
 uvicorn main:app --port 8001
 ```
 
+### Teammates: one shared backend, any platform
+
+One machine runs the backend; everyone else only needs a browser (POS is a
+web app served by the backend itself, so Windows/macOS/Linux are identical):
+
+```text
+POS (cashiers):     http://<backend-host>:8000/pos/
+Dashboard (view):   http://<backend-host>:8001
+```
+
+To run your **own dashboard copy** against a teammate's backend instead of a
+local one, point it at their machine:
+
+```bash
+JAMROCK_BACKEND_URL=http://100.x.x.x:8000 uvicorn main:app --port 8001
+```
+
+No extra config is needed for the POS — it posts to whichever backend served
+the page. Orders placed anywhere appear on every open dashboard within ~3 s.
+
 ## Endpoints
 
 | Method | Path | Purpose |
