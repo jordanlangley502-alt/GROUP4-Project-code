@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d0d0d">
+<title>End-of-Day Report · Jamrock Bitez</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --surface: #f6f1e7;
+    --paper: #fffdf8;
+    --ink: #16150f;
+    --muted: #6f6a5c;
+    --line: #e7dfcd;
+    --gold: #f5c518;
+    --gold-deep: #b8860b;
+    --green: #009b3a;
+    --accent: #c41e3a;
+    --font-display: "Fraunces", Georgia, serif;
+    --font-text: "IBM Plex Sans", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--surface);
+    color: var(--ink);
+    font: 400 15px/1.5 var(--font-text);
+    min-height: 100vh;
+    padding: clamp(16px, 4vw, 48px);
+  }
+  .sheet {
+    max-width: 760px;
+    margin: 0 auto;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: clamp(24px, 5vw, 48px);
+  }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; border-bottom: 3px solid var(--ink); padding-bottom: 20px; }
+  .brand { display: flex; gap: 14px; align-items: center; }
+  .mark {
+    width: 52px; height: 52px; border-radius: 10px;
+    background: var(--gold); color: var(--ink);
+    display: grid; place-items: center;
+    font: 700 20px/1 var(--font-display); letter-spacing: .02em;
+  }
+  h1 { font: 700 clamp(22px, 4vw, 30px)/1.1 var(--font-display); }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .stamp {
+    font: 600 12px/1 var(--font-mono);
+    text-transform: uppercase; letter-spacing: .08em;
+    background: color-mix(in oklab, var(--gold) 35%, transparent);
+    border: 1px solid color-mix(in oklab, var(--gold-deep) 45%, transparent);
+    color: var(--gold-deep);
+    padding: 8px 12px; border-radius: 999px; white-space: nowrap;
+  }
+  .hero { padding: 28px 0 8px; }
+  .hero .lbl { font: 600 12px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+  .hero .amt { font: 700 clamp(38px, 8vw, 56px)/1 var(--font-mono); margin-top: 10px; letter-spacing: -.02em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 24px; }
+  .cell {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--ink);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .cell--store { border-left-color: var(--ink); }
+  .cell--del { border-left-color: var(--gold-deep); }
+  .cell--waste { border-left-color: var(--green); }
+  .cell .k { display: flex; align-items: center; gap: 8px; font: 600 12px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .cell .k i { width: 9px; height: 9px; border-radius: 2px; background: var(--ink); }
+  .cell--del .k i { background: var(--gold-deep); }
+  .cell--waste .k i { background: var(--green); }
+  .cell .v { font: 600 clamp(20px, 4vw, 26px)/1.1 var(--font-mono); margin-top: 10px; }
+  .cell .n { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .check {
+    margin-top: 18px;
+    background: color-mix(in oklab, var(--green) 7%, var(--paper));
+    border: 1px solid color-mix(in oklab, var(--green) 30%, transparent);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font: 500 13px/1.5 var(--font-mono);
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .check b { color: var(--green); }
+  .note { margin-top: 18px; color: var(--muted); font-size: 13px; }
+  .foot { margin-top: 32px; padding-top: 18px; border-top: 1px dashed var(--line); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .foot a { color: var(--ink); font-weight: 600; text-decoration: none; border-bottom: 2px solid var(--gold); padding-bottom: 2px; font-size: 14px; }
+  .foot a:hover { border-bottom-color: var(--green); }
+  .live { font: 600 11px/1 var(--font-mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .live.is-live { color: var(--green); }
+  @media (max-width: 560px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .sheet { border: 0; padding: 0; max-width: none; }
+    .foot a { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="sheet">
+  <header>
+    <div class="brand">
+      <div class="mark" aria-hidden="true">JB</div>
+      <div>
+        <h1>End-of-Day Report</h1>
+        <p class="sub" id="date_label">—</p>
+      </div>
+    </div>
+    <span class="stamp">Jamrock Bitez</span>
+  </header>
+
+  <section class="hero">
+    <p class="lbl">Total takings</p>
+    <p class="amt" id="revenue">—</p>
+  </section>
+
+  <section class="grid" aria-label="Breakdown">
+    <div class="cell cell--store">
+      <p class="k"><i aria-hidden="true"></i> In-store</p>
+      <p class="v" id="in_store">—</p>
+      <p class="n" id="orders_line">— orders</p>
+    </div>
+    <div class="cell cell--del">
+      <p class="k"><i aria-hidden="true"></i> Delivery</p>
+      <p class="v" id="delivery">—</p>
+      <p class="n" id="share_line">— of takings</p>
+    </div>
+    <div class="cell cell--waste">
+      <p class="k"><i aria-hidden="true"></i> Waste logged</p>
+      <p class="v" id="waste">—</p>
+      <p class="n">entries recorded</p>
+    </div>
+  </section>
+
+  <p class="check" id="check" hidden>
+    <b>✓</b>
+    <span id="check_text"></span>
+  </p>
+
+  <p class="note" id="note"></p>
+
+  <div class="foot">
+    <a href="/">← Back to dashboard</a>
+    <span class="live" id="live">local data</span>
+  </div>
+</main>
+
+<script>
+const money = n => 'J$' + Number(n || 0).toFixed(2);
+const fmtDate = iso => {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+};
+
+fetch('/api/report/end-of-day')
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('date_label').textContent = fmtDate(d.date);
+    document.getElementById('revenue').textContent = money(d.revenue);
+    document.getElementById('in_store').textContent = money(d.in_store);
+    document.getElementById('delivery').textContent = money(d.delivery);
+    document.getElementById('waste').textContent = d.waste_logged ?? 0;
+    document.getElementById('orders_line').textContent =
+      (d.in_store_orders ?? 0) + ' dine-in orders';
+    const share = d.revenue > 0 ? Math.round((d.delivery / d.revenue) * 100) : 0;
+    document.getElementById('share_line').textContent =
+      (d.delivery_orders ?? 0) + ' delivery orders · ' + share + '% of takings';
+
+    const sum = (Number(d.in_store) + Number(d.delivery)).toFixed(2);
+    const ok = sum === Number(d.revenue).toFixed(2);
+    const check = document.getElementById('check');
+    check.hidden = false;
+    check.style.borderColor = ok
+      ? 'color-mix(in oklab, var(--green) 30%, transparent)'
+      : 'color-mix(in oklab, var(--accent) 30%, transparent)';
+    document.getElementById('check_text').textContent = ok
+      ? `${money(d.in_store)} in-store + ${money(d.delivery)} delivery = ${money(d.revenue)} (SR-5.2 ✓)`
+      : `Split mismatch: ${money(d.in_store)} + ${money(d.delivery)} ≠ ${money(d.revenue)}`;
+
+    document.getElementById('note').textContent = d.note || '';
+    const live = document.getElementById('live');
+    const mode = d.mode || (d.live ? 'live' : 'demo');
+    if (mode === 'live') { live.textContent = '● shared backend'; live.classList.add('is-live'); }
+    else if (mode === 'stale') live.textContent = '● backend offline — last synced';
+  })
+  .catch(() => {
+    document.getElementById('revenue').textContent = 'Unavailable';
+    document.getElementById('note').textContent = 'Could not reach the dashboard API.';
+  });
+</script>
+</body>
+</html>
