@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jamrock Bitez | Kitchen Display</title>
+  <link rel="stylesheet" href="kitchen.css">
+</head>
+<body>
+  <section id="login-view" class="login-view" aria-labelledby="login-title" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark" aria-hidden="true">JB</div>
+      <p class="eyebrow">JAMROCK BITEZ</p>
+      <h1 id="login-title">Kitchen sign in</h1>
+      <p class="login-intro">Sign in to open the kitchen display.</p>
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="login-error" role="alert" aria-live="polite" hidden></p>
+      <button id="sign-in" class="button button-primary login-submit" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <div id="app-view" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">JB</div>
+        <div>
+          <div class="brand-name">Jamrock Bitez</div>
+          <div class="brand-subtitle">Kitchen Display</div>
+        </div>
+      </div>
+      <div class="topbar-tools">
+        <span id="connection" class="live-indicator is-offline" role="status"><span></span><b id="connection-text">Connecting</b></span>
+        <span id="kitchen-name" class="kitchen-name"></span>
+        <button id="logout" class="button button-quiet" type="button">Logout</button>
+      </div>
+    </header>
+
+    <div id="error-banner" class="error-banner" role="alert" aria-live="polite" hidden>
+      <span id="message"></span>
+      <button id="dismiss-error" class="dismiss-error" type="button" aria-label="Dismiss error">×</button>
+    </div>
+
+    <main class="board">
+      <section class="column column-confirmed" aria-labelledby="col-confirmed">
+        <header class="column-head">
+          <h2 id="col-confirmed">New orders</h2>
+          <span id="count-confirmed" class="count-badge">0</span>
+        </header>
+        <div id="list-confirmed" class="ticket-list" aria-live="polite"></div>
+        <p id="empty-confirmed" class="column-empty">No new orders.</p>
+      </section>
+
+      <section class="column column-making" aria-labelledby="col-making">
+        <header class="column-head">
+          <h2 id="col-making">Making</h2>
+          <span id="count-making" class="count-badge">0</span>
+        </header>
+        <div id="list-making" class="ticket-list" aria-live="polite"></div>
+        <p id="empty-making" class="column-empty">Nothing being made.</p>
+      </section>
+
+      <section class="column column-ready" aria-labelledby="col-ready">
+        <header class="column-head">
+          <h2 id="col-ready">Ready</h2>
+          <span id="count-ready" class="count-badge">0</span>
+        </header>
+        <div id="list-ready" class="ticket-list" aria-live="polite"></div>
+        <p id="empty-ready" class="column-empty">No orders ready.</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="kitchen.js"></script>
+</body>
+</html>
