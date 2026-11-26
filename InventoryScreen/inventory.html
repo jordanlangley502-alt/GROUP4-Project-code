@@ -1,0 +1,215 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Jamrock Bitez - Inventory</title>
+
+    <link rel="stylesheet" href="inventory.css">
+
+    <script src="api.js" defer></script>
+    <script src="inventory.js" defer></script>
+    
+</head>
+
+<body>
+
+<header>
+    <h1>JAMROCK BITEZ</h1>
+    <p>Inventory Management System</p>
+</header>
+
+<main>
+
+    <h2>Inventory Overview</h2>
+
+    <div class="dashboard">
+
+        <div class="card">
+            <h3>Total Items</h3>
+            <p id="totalItems">0</p>
+        </div>
+
+        <div class="card">
+            <h3>Low Stock</h3>
+            <p id="lowCount">0</p>
+        </div>
+
+        <div class="card">
+            <h3>Out of Stock</h3>
+            <p id="outCount">0</p>
+        </div>
+
+    </div>
+
+    <p id="inventoryMessage"></p>
+
+    <nav>
+        <button data-tab="viewTab">View Inventory</button>
+        <button data-tab="addTab">Add Item</button>
+        <button data-tab="receiveTab">Receive Stock</button>
+        <button data-tab="removeTab">Remove Stock</button>
+        <button data-tab="lowTab">Low Stock</button>
+        <button data-tab="expiryTab">Expiry Tracking</button>
+    </nav>
+
+
+    <!-- VIEW INVENTORY -->
+
+    <section id="viewTab" class="inventory-tab">
+
+        <h2>Current Inventory</h2>
+
+        <button id="refreshButton">Refresh Inventory</button>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Quantity</th>
+                    <th>Unit</th>
+                    <th>Reorder Level</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody id="inventoryTable"></tbody>
+        </table>
+
+    </section>
+
+
+    <!-- ADD ITEM -->
+
+    <section id="addTab" class="inventory-tab" hidden>
+
+        <h2>Add New Inventory Item</h2>
+
+        <form id="addForm">
+
+            <label>Item Name</label>
+            <input id="itemName" required>
+
+            <label>Unit</label>
+            <select id="itemUnit" required>
+                <option value="">Select unit</option>
+                <option value="kg">Kilograms</option>
+                <option value="litres">Litres</option>
+                <option value="pieces">Pieces</option>
+                <option value="grams">Grams</option>
+                <option value="units">Units</option>
+            </select>
+
+            <label>Reorder Level</label>
+            <input id="reorderLevel" type="number"
+                   min="0" step="any" required>
+
+            <button type="submit">Add Item</button>
+
+        </form>
+
+    </section>
+
+
+    <!-- RECEIVE STOCK -->
+
+    <section id="receiveTab" class="inventory-tab" hidden>
+
+        <h2>Receive Stock</h2>
+
+        <form id="receiveForm">
+
+            <label>Inventory Item</label>
+            <select id="receiveItem" required></select>
+
+            <label>Quantity Received</label>
+            <input id="receiveQuantity" type="number"
+                   min="0.001" step="any" required>
+
+            <label>Expiry Date</label>
+            <input id="receiveExpiry" type="date" required>
+
+            <button type="submit">Receive Stock</button>
+
+        </form>
+
+    </section>
+
+
+    <!-- REMOVE STOCK -->
+
+    <section id="removeTab" class="inventory-tab" hidden>
+
+        <h2>Remove Stock</h2>
+
+        <form id="removeForm">
+
+            <label>Inventory Item</label>
+            <select id="removeItem" required></select>
+
+            <label>Quantity to Remove</label>
+            <input id="removeQuantity" type="number"
+                   min="0.001" step="any" required>
+
+            <label>Reason</label>
+            <input id="removeReason" required>
+
+            <button type="submit">Remove Stock</button>
+
+        </form>
+
+    </section>
+
+
+    <!-- LOW STOCK -->
+
+    <section id="lowTab" class="inventory-tab" hidden>
+
+        <h2>Low Stock Alerts</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Quantity</th>
+                    <th>Reorder Level</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody id="lowTable"></tbody>
+        </table>
+
+    </section>
+
+
+    <!-- EXPIRY TRACKING -->
+
+    <section id="expiryTab" class="inventory-tab" hidden>
+
+        <h2>Expiry Tracking</h2>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Item</th>
+                    <th>Quantity</th>
+                    <th>Expiry Date</th>
+                    <th>Days Left</th>
+                    <th>Status</th>
+                    <th>Edit Expiry</th>
+                </tr>
+            </thead>
+
+            <tbody id="expiryTable"></tbody>
+        </table>
+
+    </section>
+
+</main>
+
+</body>
+</html>
