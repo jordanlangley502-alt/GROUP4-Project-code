@@ -24,6 +24,17 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Jamrock Bitez — Owner Dashboard")
 
+
+@app.middleware("http")
+async def no_store_api(request, call_next):
+    """API JSON must never be served from the browser HTTP cache — the board
+    polls these and stale totals would look like a broken live feed."""
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # Shared backend (Danyl's backend/ package) — used when available.
 BACKEND = "http://127.0.0.1:8000"
 
